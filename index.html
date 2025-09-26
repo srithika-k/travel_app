@@ -464,20 +464,7 @@
     // Center initial view to show all routes
     document.getElementById('centerAll').click();
 
-    /* --------------------------
-       How to integrate with real live data (example)
-       --------------------------
-       Replace the simulation above with real-time positions:
-       1) Use a WebSocket or Server-Sent Events that emits {id, lat, lon, speed, status}
-       2) On message, if marker exists, setLatLng([lat,lon]); else create a new marker.
-       3) Update sidebar & ETA by computing remaining route distance (you may store route polylines server-side).
-       Example pseudo:
-       const ws = new WebSocket('wss://yourserver/positions');
-       ws.onmessage = (e) => {
-         const payload = JSON.parse(e.data);
-         // find busState[payload.id] and update marker
-       };
-       -------------------------- */
+   
   </script>
 </body>
 </html>

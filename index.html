@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Live Bus Tracker — Travel App UI</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-sA+4v0B6q8gYq5xgI3W9hGmZfWmJkY0yI2v+3f0u5xM=" crossorigin=""/>
+
+  <style>
+    :root{
+      --accent:#0ea5a4; /* teal */
+      --accent-2:#2563eb; /* blue */
+      --bg:#0f172a; /* slate-900 */
+      --panel:#0b1220;
+      --muted:#94a3b8;
+      --glass: rgba(255,255,255,0.04);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    }
+    html,body,#app { height:100%; margin:0; background: linear-gradient(180deg, #071025 0%, #081426 60%); color:#e6eef8; }
+    .app {
+      display:grid;
+      grid-template-columns: 340px 1fr;
+      gap:18px;
+      height:100vh;
+      padding:18px;
+      box-sizing:border-box;
+    }
+    /* Mobile: stack */
+    @media (max-width:880px){
+      .app { grid-template-columns: 1fr; grid-template-rows: 120px 1fr; padding:12px; }
+      .sidebar { height: auto; max-height: none; overflow: visible; }
+    }
+
+    .sidebar {
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
+      border-radius:14px;
+      padding:18px;
+      box-shadow: 0 8px 30px rgba(2,6,23,0.6);
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      min-height:0;
+    }
+
+    .brand { display:flex; gap:12px; align-items:center; }
+    .logo {
+      width:56px; height:56px; border-radius:12px;
+      background: linear-gradient(135deg,var(--accent),var(--accent-2));
+      display:flex; align-items:center; justify-content:center;
+      font-weight:700; color:white; font-size:20px;
+      box-shadow: 0 6px 18px rgba(2,8,23,0.6);
+    }
+    .brand h1 { margin:0; font-size:18px; letter-spacing:0.2px; }
+    .brand p { margin:0; color:var(--muted); font-size:13px; }
+
+    .search {
+      display:flex; gap:8px; align-items:center;
+      background:var(--glass); padding:8px; border-radius:10px;
+    }
+    .search input{
+      background:transparent; border:0; outline:none; color:inherit; flex:1;
+    }
+    .buttons { display:flex; gap:8px; }
+
+    .btn {
+      padding:8px 12px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.02);
+      cursor:pointer; color:inherit; font-weight:600; font-size:13px;
+    }
+    .btn.primary { background:linear-gradient(90deg,var(--accent),var(--accent-2)); color:#041024; border:0; box-shadow: 0 6px 18px rgba(12,32,48,0.35); }
+
+    .list { overflow:auto; padding-right:6px; min-height:0; } /* allow scroll inside flex column */
+    .bus-card {
+      display:flex; gap:10px; align-items:center; padding:10px; border-radius:10px;
+      background: rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.02);
+      margin-bottom:8px;
+    }
+    .bus-avatar {
+      width:56px; height:56px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+      background:linear-gradient(180deg,#071b2a, #0e2a3a); font-weight:700;
+      color:var(--accent);
+    }
+    .bus-info { flex:1; min-width:0; }
+    .bus-info h3 { margin:0 0 6px 0; font-size:15px; }
+    .meta { color:var(--muted); font-size:13px; display:flex; gap:8px; flex-wrap:wrap; }
+
+    #map { border-radius:14px; height:100%; box-shadow: 0 10px 40px rgba(2,6,23,0.6); overflow:hidden; }
+
+    .map-top {
+      position:absolute; left:calc(340px + 36px); top:36px; z-index:1000;
+      /* hidden on small screens */
+    }
+    @media (max-width:880px){ .map-top{ left:18px; top:132px; } }
+
+    .card-floating {
+      background: rgba(3,7,18,0.6); padding:10px 12px; border-radius:12px; color:#dff3f2;
+      box-shadow: 0 10px 30px rgba(2,6,23,0.6); border:1px solid rgba(255,255,255,0.03);
+    }
+
+    /* small helper styles */
+    .muted { color:var(--muted); font-size:13px; }
+    .stat { font-weight:700; font-size:16px; }
+
+    /* Leaflet marker style override for bus icon */
+    .bus-marker {
+      display:flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:10px;
+      background:linear-gradient(135deg,var(--accent),var(--accent-2)); color:#021020; font-weight:800;
+      box-shadow: 0 6px 18px rgba(2,8,23,0.45);
+      border:2px solid rgba(255,255,255,0.6);
+    }
+
+    footer.small { text-align:center; color:var(--muted); font-size:12px; margin-top:auto; }
+  </style>
+</head>
+<body>
+  <div id="app" class="app" >
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="logo">TR</div>
+        <div>
+          <h1>TransitRadar</h1>
+          <p>Live bus tracking • ETA • Route preview</p>
+        </div>
+      </div>
+
+      <div class="search" style="margin-top:6px;">
+        <input id="searchInput" placeholder="Search bus id or route (e.g. 24A)" />
+        <button class="btn" id="searchBtn">Find</button>
+      </div>
+
+      <div class="buttons" style="margin-top:6px;">
+        <button class="btn primary" id="centerAll">Center All</button>
+        <button class="btn" id="toggleSim">Pause</button>
+        <button class="btn" id="resetSim">Reset</button>
+      </div>
+
+      <div style="margin-top:10px; display:flex; gap:10px;">
+        <div class="card-floating" style="display:flex;flex-direction:column;">
+          <div class="muted">Active buses</div>
+          <div id="activeCount" class="stat">0</div>
+        </div>
+        <div class="card-floating" style="display:flex;flex-direction:column;">
+          <div class="muted">Avg speed</div>
+          <div id="avgSpeed" class="stat">— km/h</div>
+        </div>
+      </div>
+
+      <div class="list" id="busList" style="margin-top:10px; overflow:auto;"></div>
+
+      <footer class="small">Tip: Replace simulation with WebSocket stream for real-time updates.</footer>
+    </aside>
+
+    <!-- Map -->
+    <div id="mapContainer" style="position:relative;">
+      <div id="map"></div>
+      <div class="map-top" id="mapTop"></div>
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-o9N1j8f+Y2NqfQv7xg7fG3c6u3zqD6q6G5rjL0iW6L0=" crossorigin=""></script>
+
+  <script>
+    /* --------------------------
+       MOCK DATA: predefined routes
+       Replace or feed via server for live data.
+       -------------------------- */
+    const routes = {
+      "24A": {
+        name: "24A — Central City ↔ Airport",
+        color: "#12b981",
+        coords: [
+          [12.9716,77.5946], // start central (Bengaluru coords for demo)
+          [12.9728,77.6020],
+          [12.9750,77.6100],
+          [12.9800,77.6200],
+          [12.9850,77.6300],
+          [12.9900,77.6400]  // airport-ish
+        ]
+      },
+      "7B": {
+        name: "7B — Eastside Loop",
+        color: "#ef4444",
+        coords: [
+          [12.9716,77.5946],
+          [12.9680,77.6000],
+          [12.9650,77.6060],
+          [12.9620,77.6120],
+          [12.9600,77.6200]
+        ]
+      },
+      "101": {
+        name: "101 — Riverside Express",
+        color: "#06b6d4",
+        coords: [
+          [12.9950,77.5800],
+          [12.9900,77.5850],
+          [12.9850,77.5900],
+          [12.9800,77.5950],
+          [12.9750,77.6000],
+          [12.9716,77.5946]
+        ]
+      }
+    };
+
+    // Simulated buses (each has id, routeKey, position index, speed km/h)
+    const buses = [
+      { id: "24A-01", route: "24A", idx: 0, speed: 30, status: "on route" },
+      { id: "24A-02", route: "24A", idx: 2, speed: 28, status: "on route" },
+      { id: "7B-11", route: "7B", idx: 1, speed: 22, status: "on route" },
+      { id: "101-05", route: "101", idx: 3, speed: 40, status: "on route" }
+    ];
+
+    /* --------------------------
+       Helper utilities
+       -------------------------- */
+    function haversine(lat1, lon1, lat2, lon2){
+      // returns meters
+      function toRad(x){ return x * Math.PI/180; }
+      const R = 6371000;
+      const dLat = toRad(lat2-lat1);
+      const dLon = toRad(lon2-lon1);
+      const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+      const c = 2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R*c;
+    }
+
+    function distanceAlongRoute(coords, idx){
+      // remaining distance from index 'idx' to end (meters)
+      let dist = 0;
+      for(let i=idx;i<coords.length-1;i++){
+        dist += haversine(coords[i][0],coords[i][1], coords[i+1][0],coords[i+1][1]);
+      }
+      return dist;
+    }
+
+    /* --------------------------
+       Initialize map
+       -------------------------- */
+    const map = L.map('map', { zoomControl:false }).setView([12.9716,77.5946], 13);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Create a group to hold markers and polylines
+    const routesLayer = L.layerGroup().addTo(map);
+    const busesLayer = L.layerGroup().addTo(map);
+
+    // draw route polylines
+    const routePolylines = {};
+    for(const key in routes){
+      const r = routes[key];
+      routePolylines[key] = L.polyline(r.coords, { color: r.color, weight:4, opacity:0.85 }).addTo(routesLayer);
+    }
+
+    // Custom DivIcon for bus
+    function createBusIcon(label){
+      return L.divIcon({
+        className: '',
+        html: `<div class="bus-marker">${label}</div>`,
+        iconSize: [36,36],
+        iconAnchor: [18,18]
+      });
+    }
+
+    // Create marker objects for each bus and keep state
+    const busState = {}; // id -> {marker, ...}
+    function createMarkersFromBuses(){
+      buses.forEach(b=>{
+        const route = routes[b.route];
+        const pos = route.coords[b.idx];
+        const marker = L.marker(pos, { icon: createBusIcon(b.id.split('-')[0]) }).addTo(busesLayer);
+        marker.bindPopup(`<strong>${b.id}</strong><br>${route.name}`);
+        busState[b.id] = {...b, marker};
+      });
+      updateSidebar();
+    }
+
+    createMarkersFromBuses();
+
+    /* --------------------------
+       Simulation loop
+       -------------------------- */
+    let simRunning = true;
+    let simInterval = null;
+    const tickMs = 1000; // every second
+
+    function stepSimulation(){
+      // Move each bus a bit along the route according to its speed.
+      buses.forEach(bus=>{
+        const route = routes[bus.route];
+        const coords = route.coords;
+        // Current point and next point
+        if(bus.idx >= coords.length-1){
+          // reached end — wrap for demo
+          bus.idx = 0;
+        }
+        const cur = coords[bus.idx];
+        const next = coords[bus.idx+1] || coords[coords.length-1];
+        const distRemain = haversine(cur[0],cur[1], next[0],next[1]); // meters between cur and next
+
+        // compute how far to advance in meters this tick
+        // speed is km/h -> m/s = (speed*1000)/3600
+        const mspeed = (bus.speed*1000)/3600;
+        const stepMeters = mspeed * (tickMs/1000);
+
+        if(stepMeters >= distRemain - 0.5){
+          // move to next vertex
+          // compute leftover distance and advance index, possibly skipping vertices
+          let leftover = stepMeters - distRemain;
+          bus.idx++;
+          // if we surpassed last point, wrap to 0 (demo) or stop
+          if(bus.idx >= coords.length-1){
+            bus.idx = coords.length-1; // stop at last for more realistic; later wrap or set status
+            // for demo, loop back to start after a short pause
+            // bus.idx = 0;
+          } else {
+            // move progressively along next segments if leftover large
+            while(leftover > 0 && bus.idx < coords.length-1){
+              const a = coords[bus.idx];
+              const b = coords[bus.idx+1];
+              const seg = haversine(a[0],a[1],b[0],b[1]);
+              if(leftover >= seg - 0.5){
+                leftover -= seg;
+                bus.idx++;
+              } else {
+                // compute intermediate fraction along segment
+                const frac = leftover / seg;
+                const lat = a[0] + (b[0]-a[0])*frac;
+                const lon = a[1] + (b[1]-a[1])*frac;
+                // create temporary position by setting marker then break
+                bus.partialPos = [lat, lon];
+                leftover = 0;
+                break;
+              }
+            }
+          }
+          delete bus.partialPos; // clear if not set
+        } else {
+          // move fractionally from cur to next
+          const frac = stepMeters / distRemain;
+          const lat = cur[0] + (next[0]-cur[0])*frac;
+          const lon = cur[1] + (next[1]-cur[1])*frac;
+          bus.partialPos = [lat, lon];
+        }
+
+        // Update marker position and popup content + ETA
+        const state = busState[bus.id];
+        if(state && state.marker){
+          const pos = bus.partialPos || routes[bus.route].coords[bus.idx];
+          state.marker.setLatLng(pos);
+          const remainingMeters = distanceAlongRoute(routes[bus.route].coords, bus.idx) - (bus.partialPos ? haversine(routes[bus.route].coords[bus.idx][0],routes[bus.route].coords[bus.idx][1], bus.partialPos[0],bus.partialPos[1]) : 0);
+          const etaMinutes = remainingMeters > 0 && bus.speed > 0 ? Math.round((remainingMeters / 1000) / bus.speed * 60) : 0;
+          state.marker.getPopup().setContent(`<strong>${bus.id}</strong><br>${routes[bus.route].name}<br>Speed: ${bus.speed} km/h<br>ETA: ${etaMinutes} min`);
+          // rotate icon by a small amount to simulate heading (optional)
+        }
+      });
+      updateSidebar();
+    }
+
+    function startSim(){
+      if(simInterval) clearInterval(simInterval);
+      simInterval = setInterval(()=>{ if(simRunning) stepSimulation(); }, tickMs);
+    }
+
+    startSim();
+
+    /* --------------------------
+       Sidebar UI: list of buses & controls
+       -------------------------- */
+    const busListElem = document.getElementById('busList');
+    const activeCountElem = document.getElementById('activeCount');
+    const avgSpeedElem = document.getElementById('avgSpeed');
+
+    function updateSidebar(){
+      busListElem.innerHTML = '';
+      let totalSpeed = 0;
+      buses.forEach(bus=>{
+        const route = routes[bus.route];
+        totalSpeed += bus.speed;
+        const remainingMeters = distanceAlongRoute(route.coords, bus.idx);
+        const etaMin = remainingMeters > 0 ? Math.round((remainingMeters/1000)/bus.speed*60) : 0;
+        const card = document.createElement('div');
+        card.className = 'bus-card';
+        card.innerHTML = `
+          <div class="bus-avatar">${bus.id.split('-')[0]}</div>
+          <div class="bus-info">
+            <h3>${bus.id} <span class="muted" style="font-weight:500;">• ${route.name}</span></h3>
+            <div class="meta">
+              <div>${Math.round(bus.speed)} km/h</div>
+              <div>${Math.round(remainingMeters)} m left</div>
+              <div>ETA: ${etaMin} min</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
+            <button class="btn" data-id="${bus.id}" style="padding:6px 10px;">Focus</button>
+            <button class="btn" data-id="center-${bus.id}" style="padding:6px 10px;">Route</button>
+          </div>
+        `;
+        busListElem.appendChild(card);
+
+        // attach listeners
+        card.querySelector('button[data-id]').addEventListener('click', e=>{
+          const id = e.currentTarget.dataset.id;
+          const st = busState[id];
+          if(st){
+            map.panTo(st.marker.getLatLng(), { animate:true, duration:0.8 });
+            st.marker.openPopup();
+          }
+        });
+        card.querySelector('button[data-id^="center-"]').addEventListener('click', e=>{
+          const id = e.currentTarget.dataset.id.replace('center-','');
+          const b = buses.find(x=>x.id===id);
+          if(b){
+            const poly = routePolylines[b.route];
+            map.fitBounds(poly.getBounds().pad(0.25));
+          }
+        });
+      });
+      activeCountElem.textContent = buses.length;
+      avgSpeedElem.textContent = (buses.reduce((s,b)=>s+b.speed,0)/buses.length).toFixed(0) + " km/h";
+    }
+
+    updateSidebar();
+
+    /* --------------------------
+       Simple UI wiring
+       -------------------------- */
+    document.getElementById('toggleSim').addEventListener('click', (e)=>{
+      simRunning = !simRunning;
+      e.currentTarget.textContent = simRunning ? 'Pause' : 'Resume';
+    });
+
+    document.getElementById('resetSim').addEventListener('click', ()=>{
+      // reset indices to zero and re-center
+      buses.forEach(b=>{ b.idx = 0; delete b.partialPos; });
+      Object.values(busState).forEach(s=> s.marker.setLatLng(routes[s.route].coords[0]));
+      map.setView(routes[Object.keys(routes)[0]].coords[0], 13);
+      updateSidebar();
+    });
+
+    document.getElementById('centerAll').addEventListener('click', ()=>{
+      // fit all route bounds
+      const group = L.featureGroup(Object.values(routePolylines));
+      map.fitBounds(group.getBounds().pad(0.2));
+    });
+
+    document.getElementById('searchBtn').addEventListener('click', ()=>{
+      const q = document.getElementById('searchInput').value.trim().toLowerCase();
+      if(!q) return;
+      const found = buses.find(b=> b.id.toLowerCase().includes(q) || b.route.toLowerCase().includes(q));
+      if(found){
+        const s = busState[found.id];
+        map.panTo(s.marker.getLatLng());
+        s.marker.openPopup();
+      } else alert('No bus found matching "' + q + '". Try partial ids like "24A" or "101".');
+    });
+
+    // Center initial view to show all routes
+    document.getElementById('centerAll').click();
+
+    /* --------------------------
+       How to integrate with real live data (example)
+       --------------------------
+       Replace the simulation above with real-time positions:
+       1) Use a WebSocket or Server-Sent Events that emits {id, lat, lon, speed, status}
+       2) On message, if marker exists, setLatLng([lat,lon]); else create a new marker.
+       3) Update sidebar & ETA by computing remaining route distance (you may store route polylines server-side).
+       Example pseudo:
+       const ws = new WebSocket('wss://yourserver/positions');
+       ws.onmessage = (e) => {
+         const payload = JSON.parse(e.data);
+         // find busState[payload.id] and update marker
+       };
+       -------------------------- */
+  </script>
+</body>
+</html>
